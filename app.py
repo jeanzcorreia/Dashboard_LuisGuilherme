@@ -16,45 +16,46 @@ def abreviar_nome(nome_completo):
         return ' '.join(palavras[:2])
     return nome_completo
 
+def abreviar_vendedor(nome_completo):
+    if nome_completo == "P L GRILLO REPRESENTACOES LTDA":
+        return "Luis"
+    if isinstance(nome_completo, str):
+        return nome_completo.split()[0]
+    return nome_completo
+
 # --- FUNÇÃO PRINCIPAL DE CARREGAMENTO DE DADOS ---
 @st.cache_data
 def carregar_dados():
     caminho_arquivo = 'Faturamento_Grillo - Detalhes1.csv'
-    # <-- MUDANÇA: Corrigindo o comando de leitura para a versão que funciona com seu arquivo
     df = pd.read_csv(
         caminho_arquivo
     )
     df = df.dropna(axis=1, how='all')
 
-    # Nomes das colunas
     coluna_faturamento = 'Valor'
     coluna_razao_social = 'Razão Social'
-    coluna_nome_vendedor = 'Nome' # <-- MUDANÇA: Definindo a coluna de nome do vendedor
+    coluna_nome_vendedor = 'Nome'
 
-    # Limpeza e conversão
     df['Faturamento_Limpo'] = df[coluna_faturamento].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
     df['Faturamento_Limpo'] = pd.to_numeric(df['Faturamento_Limpo'], errors='coerce').fillna(0)
 
-    # Garantir que colunas de nome existam para evitar erros
     if coluna_razao_social not in df.columns:
         df[coluna_razao_social] = "Não informado"
-    if coluna_nome_vendedor not in df.columns: # <-- MUDANÇA: Verificação para a coluna Nome
+    if coluna_nome_vendedor not in df.columns:
         df[coluna_nome_vendedor] = "Vendedor não informado"
         
     return df
 
 df = carregar_dados()
 
-# --- TÍTULO DO DASHBOARD ---
+# --- TÍTULO E MÉTRICAS ---
 st.title("📊 Dashboard de Análise de Faturamento")
 st.markdown("---")
-
-# --- MÉTRICAS PRINCIPAIS ---
 col1, col2, col3 = st.columns(3)
-coluna_cliente = 'Cliente'
-coluna_vendedor_id = 'Vendedor' # <-- MUDANÇA: Renomeado para clareza
+coluna_cliente_id = 'Cliente'
+coluna_vendedor_id = 'Vendedor'
 faturamento_total = df['Faturamento_Limpo'].sum()
-total_clientes = df[coluna_cliente].nunique()
+total_clientes = df[coluna_cliente_id].nunique()
 total_vendedores = df[coluna_vendedor_id].nunique()
 col1.metric("Faturamento Total", f"R$ {faturamento_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 col2.metric("Total de Clientes", f"{total_clientes}")
@@ -64,7 +65,7 @@ st.markdown("---")
 # --- GRÁFICO DE TOP 10 CLIENTES ---
 st.header("🏆 Top 10 Clientes por Faturamento")
 coluna_razao_social = 'Razão Social'
-faturamento_por_cliente = df.groupby(coluna_cliente).agg(
+faturamento_por_cliente = df.groupby(coluna_cliente_id).agg(
     Faturamento=('Faturamento_Limpo', 'sum'),
     Razao_Social=(coluna_razao_social, 'first')
 ).sort_values(by='Faturamento', ascending=False).head(10).reset_index()
@@ -87,24 +88,30 @@ col_esquerda, col_direita = st.columns(2)
 with col_esquerda:
     st.header("🏆 Performance dos Vendedores")
     
-    # <-- MUDANÇA: Lógica para o gráfico de vendedores
     coluna_nome_vendedor = 'Nome'
     vendas_por_vendedor = df.groupby(coluna_vendedor_id).agg(
         Faturamento=('Faturamento_Limpo', 'sum'),
         Nome=(coluna_nome_vendedor, 'first')
-    ).reset_index()
+    ).sort_values(by='Faturamento', ascending=False).reset_index()
 
-    # <-- MUDANÇA: Gráfico de pizza substituído por barras horizontais
+    vendas_por_vendedor['Nome_Abreviado'] = vendas_por_vendedor['Nome'].apply(abreviar_vendedor)
+
     fig_vendedores = px.bar(
-        vendas_por_vendedor.sort_values(by='Faturamento', ascending=True),
+        vendas_por_vendedor,
+        x='Nome_Abreviado',
         y='Faturamento',
-        x='Nome',
         title='Vendas por Vendedor',
         text_auto='.2s',
-        labels={'Faturamento': 'Total de Vendas (R$)', 'Nome': 'Vendedor'}
+        labels={'Faturamento': 'Total de Vendas (R$)', 'Nome_Abreviado': 'Vendedor'},
+        # Para garantir a ordem, passamos uma lista em vez de um dicionário
+        hover_data=['Vendedor', 'Nome']
     )
-    st.plotly_chart(fig_vendedores, use_container_width=True)
-
+    
+    # <-- MUDANÇA: Template do hover corrigido e simplificado
+    fig_vendedores.update_traces(
+        hovertemplate='<b>%{customdata[1]}</b><br>ID: %{customdata[0]}<br>Vendas: R$ %{y:,.2f}<extra></extra>'
+    )
+    
     fig_vendedores.update_xaxes(
         title_text="<b>Vendedor</b>",
         title_font=dict(size=14)
@@ -114,11 +121,11 @@ with col_esquerda:
         title_font=dict(size=14),
         tickprefix="R$ "
     )
+    
+    st.plotly_chart(fig_vendedores, use_container_width=True)
 
 with col_direita:
-    # Este espaço está livre para seu próximo gráfico
     st.info("Espaço reservado para um futuro gráfico.")
-
 
 # --- EXIBINDO OS DADOS BRUTOS ---
 with st.expander("Visualizar dados brutos"):
